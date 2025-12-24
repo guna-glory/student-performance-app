@@ -1,9 +1,17 @@
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+env/
+venv/
+ENV/
 build/
 develop-eggs/
 dist/
@@ -20,14 +28,6 @@ wheels/
 .installed.cfg
 *.egg
 
-# Streamlit
-.streamlit/secrets.toml
-.streamlit/cache/
-
-# Database
-*.db
-students.db
-
 # IDE
 .vscode/
 .idea/
@@ -39,7 +39,6 @@ students.db
 .DS_Store
 Thumbs.db
 
-# Environment
-.env
-venv/
-ENV/
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/cache/
