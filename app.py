@@ -14,7 +14,7 @@ import numpy as np
 
 # ===================== PAGE CONFIG =====================
 st.set_page_config(
-    page_title="Student Performance App",
+    page_title="Student Performance Pro",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -24,10 +24,11 @@ st.set_page_config(
 DB_FILE = "students.db"
 
 def init_db():
-    """Initialize SQLite database with students table"""
+    """Initialize SQLite database with all tables"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
+    # Students table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,16 +41,60 @@ def init_db():
             marks2 INTEGER,
             marks3 INTEGER,
             attendance INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
+    # Admin users table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS admin_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
+            email TEXT,
+            full_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # User authentication table (for student login)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_auth (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            full_name TEXT,
+            email TEXT,
+            student_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(student_id) REFERENCES students(id)
+        )
+    ''')
+    
+    # Performance history table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS performance_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL,
+            exam_score REAL,
+            exam_date TIMESTAMP,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(student_id) REFERENCES students(id)
+        )
+    ''')
+    
+    # Predictions log table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS predictions_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL,
+            predicted_status TEXT,
+            predicted_probability REAL,
+            actual_status TEXT,
+            prediction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(student_id) REFERENCES students(id)
         )
     ''')
     
@@ -68,8 +113,8 @@ def create_default_admin():
     try:
         default_password = hash_password("admin123")
         cursor.execute(
-            "INSERT INTO admin_users (username, password) VALUES (?, ?)",
-            ("admin", default_password)
+            "INSERT INTO admin_users (username, password, email, full_name) VALUES (?, ?, ?, ?)",
+            ("admin", default_password, "admin@school.com", "Admin User")
         )
         conn.commit()
     except sqlite3.IntegrityError:
@@ -136,7 +181,7 @@ def update_student(student_id, name, age, gender, department, semester, marks1, 
     try:
         cursor.execute('''
             UPDATE students 
-            SET name=?, age=?, gender=?, department=?, semester=?, marks1=?, marks2=?, marks3=?, attendance=?
+            SET name=?, age=?, gender=?, department=?, semester=?, marks1=?, marks2=?, marks3=?, attendance=?, updated_at=CURRENT_TIMESTAMP
             WHERE id=?
         ''', (name, age, gender, department, semester, marks1, marks2, marks3, attendance, student_id))
         
@@ -155,6 +200,8 @@ def delete_student(student_id):
     
     try:
         cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
+        cursor.execute("DELETE FROM performance_history WHERE student_id = ?", (student_id,))
+        cursor.execute("DELETE FROM predictions_log WHERE student_id = ?", (student_id,))
         conn.commit()
         conn.close()
         return True
@@ -186,16 +233,78 @@ def upload_csv_to_db(df):
         st.error(f"Error uploading CSV: {str(e)}")
         return False
 
+def save_performance_history(student_id, exam_score, notes=""):
+    """Save performance history"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('''
+            INSERT INTO performance_history (student_id, exam_score, exam_date, notes)
+            VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+        ''', (student_id, exam_score, notes))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        conn.close()
+        st.error(f"Error saving performance: {str(e)}")
+        return False
+
+def get_performance_history(student_id):
+    """Get performance history for a student"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT * FROM performance_history WHERE student_id = ? ORDER BY exam_date DESC
+    ''', (student_id,))
+    
+    columns = [description[0] for description in cursor.description]
+    rows = cursor.fetchall()
+    conn.close()
+    
+    if rows:
+        return pd.DataFrame(rows, columns=columns)
+    return pd.DataFrame(columns=columns)
+
+def save_prediction_log(student_id, predicted_status, predicted_probability):
+    """Log ML prediction"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('''
+            INSERT INTO predictions_log (student_id, predicted_status, predicted_probability)
+            VALUES (?, ?, ?)
+        ''', (student_id, predicted_status, predicted_probability))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        conn.close()
+        return False
+
+def get_prediction_history():
+    """Get all prediction history"""
+    conn = sqlite3.connect(DB_FILE)
+    df = pd.read_sql_query('''
+        SELECT pl.*, s.name FROM predictions_log pl
+        JOIN students s ON pl.student_id = s.id
+        ORDER BY pl.prediction_date DESC
+    ''', conn)
+    conn.close()
+    return df
+
 # ===================== THEME SYSTEM =====================
-with st.sidebar:
-    st.markdown("---")
-    st.markdown("### 🎨 Theme Settings")
-    theme_mode = st.radio(
-        "Select Theme:",
-        options=["☀️ Light", "🌙 Dark"],
-        horizontal=True,
-        label_visibility="collapsed"
-    )
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎨 Theme Settings")
+theme_mode = st.sidebar.radio(
+    "Select Theme:",
+    options=["☀️ Light", "🌙 Dark"],
+    horizontal=True,
+    label_visibility="collapsed"
+)
 
 THEME = {
     "Light": {
@@ -319,27 +428,15 @@ def enrich_dataframe(df):
     return df
 
 def train_ml_model(df):
-    """Train Logistic Regression model with comprehensive error handling"""
+    """Train Logistic Regression model"""
     try:
         df_model = df.copy()
         df_model['status_binary'] = (df_model['status'] == 'PASS').astype(int)
         
-        # Check if we have both classes (PASS and FAIL)
         unique_classes = df_model['status_binary'].unique()
         
         if len(unique_classes) < 2:
-            pass_count = (df_model['status'] == 'PASS').sum()
-            fail_count = (df_model['status'] == 'FAIL').sum()
-            st.warning(f"⚠️ Cannot train model: Unbalanced data")
-            st.info(f"""
-            **Current Distribution:**
-            - PASS: {pass_count} students
-            - FAIL: {fail_count} students
-            
-            **To fix this:** Add students with BOTH PASS and FAIL status.
-            - Add students with marks < 120 (will FAIL)
-            - Add students with marks ≥ 120 (will PASS)
-            """)
+            st.warning("⚠️ Cannot train model: Need both PASS and FAIL students")
             return None, None, None, None
         
         le_gender = LabelEncoder()
@@ -352,7 +449,6 @@ def train_ml_model(df):
         X = df_model[features]
         y = df_model['status_binary']
         
-        # Need at least 2 samples for train_test_split
         if len(df_model) < 2:
             st.warning("⚠️ Need at least 2 students to train model")
             return None, None, None, None
@@ -390,8 +486,8 @@ if not st.session_state.logged_in:
     st.markdown(
         """
         <div style="text-align: center; padding: 50px 0;">
-            <h1 style="font-size: 2.5em;">📊 Student Performance Dashboard</h1>
-            <p style="font-size: 1.2em; color: #666;">Admin Login Required</p>
+            <h1 style="font-size: 2.5em;">📊 Student Performance Pro</h1>
+            <p style="font-size: 1.2em; color: #666;">Admin Dashboard with ML Analytics</p>
         </div>
         """,
         unsafe_allow_html=True
@@ -401,7 +497,7 @@ if not st.session_state.logged_in:
     
     with col2:
         st.markdown("---")
-        st.subheader("🔐 Login")
+        st.subheader("🔐 Admin Login")
         
         username = st.text_input("Username", placeholder="Enter username", key="login_user")
         password = st.text_input("Password", type="password", placeholder="Enter password", key="login_pass")
@@ -437,7 +533,7 @@ else:
     st.markdown(
         """
         <div style="text-align: center; padding: 20px 0;">
-            <h1 style="margin: 0; font-size: 2.5em;">📊 Student Performance Dashboard</h1>
+            <h1 style="margin: 0; font-size: 2.5em;">📊 Student Performance Pro</h1>
             <p style="color: #6b7280; font-size: 1.1em; margin: 10px 0 0 0;">Admin Dashboard</p>
         </div>
         """,
@@ -446,28 +542,23 @@ else:
     
     st.markdown("---")
     
-    # ✅ FIX: Show navigation REGARDLESS of database status
     page = st.radio(
         "📄 Navigation",
-        ["📊 Dashboard", "🔍 Student Finder", "📈 Analytics", "🔄 Compare", "⚙️ Admin Panel", "🤖 ML Predictions"],
+        ["📊 Dashboard", "🔍 Student Finder", "📈 Analytics", "🔄 Compare", "📊 Performance Tracking", "⚙️ Admin Panel", "🤖 ML Predictions"],
         horizontal=True,
         key="nav_page"
     )
     
     st.markdown("---")
     
-    # Get data from database
     df = get_all_students()
     
-    # ✅ FIX: Only show "No students" warning on Dashboard, not on Admin Panel
     if len(df) == 0 and page != "⚙️ Admin Panel":
         st.warning("📭 No students in database. Use **⚙️ Admin Panel** to add students or upload CSV.")
     
-    # ✅ FIX: Enrich dataframe only if it has data
     if len(df) > 0:
         df = enrich_dataframe(df)
         
-        # Filters available only when data exists
         st.sidebar.markdown("---")
         st.sidebar.header("🎛️ Filters")
         
@@ -493,7 +584,6 @@ else:
         
         st.sidebar.write(f"**📊 Results:** {len(filtered_df)} / {len(df)} students")
     else:
-        # When no data, filtered_df is empty
         filtered_df = pd.DataFrame()
     
     # ===================== PAGE: DASHBOARD =====================
@@ -722,6 +812,62 @@ else:
             elif student1 == student2:
                 st.warning("Select two different students")
     
+    # ===================== PAGE: PERFORMANCE TRACKING =====================
+    elif page == "📊 Performance Tracking":
+        st.subheader("📊 Performance History & Trends")
+        
+        if len(df) == 0:
+            st.warning("📭 No students in database yet.")
+            st.info("Go to **⚙️ Admin Panel** to add students first.")
+        else:
+            # Select student
+            selected_student = st.selectbox("📌 Select Student", df['name'].values, key="perf_select")
+            student_data = df[df['name'] == selected_student].iloc[0]
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1: st.metric("Name", student_data['name'])
+            with col2: st.metric("Department", student_data['department'])
+            with col3: st.metric("Current GPA", f"{student_data['gpa']:.2f}")
+            with col4: st.metric("Status", "✅ PASS" if student_data['status'] == 'PASS' else "❌ FAIL")
+            
+            st.markdown("---")
+            
+            # Add performance entry
+            st.write("### ➕ Add Performance Entry")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                exam_score = st.number_input("Exam Score", min_value=0, max_value=100, value=85, key="perf_score")
+            with col2:
+                notes = st.text_input("Notes (optional)", placeholder="e.g., Improved time management", key="perf_notes")
+            
+            if st.button("💾 Save Performance Entry", use_container_width=True, key="save_perf"):
+                if save_performance_history(student_data['id'], exam_score, notes):
+                    st.success("✅ Performance entry saved!")
+                    st.rerun()
+            
+            st.markdown("---")
+            
+            # Show performance history
+            st.write("### 📈 Performance History")
+            perf_history = get_performance_history(student_data['id'])
+            
+            if len(perf_history) > 0:
+                st.dataframe(perf_history[['exam_score', 'exam_date', 'notes']].head(10), use_container_width=True)
+                
+                # Performance trend chart
+                fig_trend = px.line(perf_history.iloc[::-1], y='exam_score', 
+                                   title=f"Performance Trend - {selected_student}",
+                                   markers=True)
+                fig_trend.update_layout(template=active_theme['plotly_template'], height=400)
+                st.plotly_chart(fig_trend, use_container_width=True)
+                
+                st.write(f"**Average Score:** {perf_history['exam_score'].mean():.2f}")
+                st.write(f"**Highest Score:** {perf_history['exam_score'].max():.2f}")
+                st.write(f"**Lowest Score:** {perf_history['exam_score'].min():.2f}")
+            else:
+                st.info("No performance history for this student yet.")
+    
     # ===================== PAGE: ADMIN PANEL =====================
     elif page == "⚙️ Admin Panel":
         st.subheader("⚙️ Admin Panel")
@@ -843,7 +989,6 @@ else:
             st.warning("📭 No students in database yet.")
             st.info("Go to **⚙️ Admin Panel** → **📥 Upload CSV** to add students")
         else:
-            # Get statistics
             pass_count = (df['status'] == 'PASS').sum()
             fail_count = (df['status'] == 'FAIL').sum()
             
@@ -968,4 +1113,3 @@ else:
                     use_container_width=True,
                     key="download_all"
                 )
-
