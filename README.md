@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 📊 Student Performance Dashboard
 
 A comprehensive **Streamlit web application** for tracking, analyzing, and predicting student academic performance with machine learning integration.
@@ -29,3 +30,6 @@ A comprehensive **Streamlit web application** for tracking, analyzing, and predi
 ## 🚀 Quick Start (Local Development)
 
 ### 1. Clone Repository
+=======
+# student-performance-app
+>>>>>>> c5fd395f76fa51ce516ac0edaf6a632dda3b5835
